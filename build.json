@@ -401,6 +401,7 @@
             "crypto/mldsa/mldsa.cc",
             "crypto/mlkem/mlkem.cc",
             "crypto/hqc/hqc.cc",
+            "crypto/hqc/vector.cc",
             "crypto/obj/obj.cc",
             "crypto/obj/obj_xref.cc",
             "crypto/pem/pem_all.cc",

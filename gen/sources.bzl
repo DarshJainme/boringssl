@@ -409,6 +409,7 @@ crypto_sources = [
     "crypto/fuzzer_mode.cc",
     "crypto/hpke/hpke.cc",
     "crypto/hqc/hqc.cc",
+    "crypto/hqc/vector.cc",
     "crypto/hrss/hrss.cc",
     "crypto/lhash/lhash.cc",
     "crypto/md4/md4.cc",
