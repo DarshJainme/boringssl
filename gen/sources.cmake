@@ -426,6 +426,7 @@ set(
   crypto/fipsmodule/fips_shared_support.cc
   crypto/fuzzer_mode.cc
   crypto/hpke/hpke.cc
+  crypto/hqc/hqc.cc
   crypto/hrss/hrss.cc
   crypto/lhash/lhash.cc
   crypto/md4/md4.cc
@@ -826,6 +827,7 @@ set(
   crypto/fipsmodule/sha/sha_test.cc
   crypto/hmac/hmac_test.cc
   crypto/hpke/hpke_test.cc
+  crypto/hqc/hqc_test.cc
   crypto/hrss/hrss_test.cc
   crypto/impl_dispatch_test.cc
   crypto/lhash/lhash_test.cc
