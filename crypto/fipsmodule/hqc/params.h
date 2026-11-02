@@ -6,7 +6,6 @@
  * @brief Parameters of the HQC_KEM IND-CCA2 scheme
  */
 
-#include "api.h"
 
 #define CEIL_DIVIDE(a, b)  (((a)/(b)) + ((a) % (b) == 0 ? 0 : 1)) /*!< Divide a by b and ceil the result*/
 #define BITMASK(a, size) ((1UL << (a % size)) - 1) /*!< Create a mask*/
@@ -69,10 +68,11 @@
 #define PARAM_SECURITY                        128
 #define PARAM_DFR_EXP                         128
 
-#define SECRET_KEY_BYTES                      CRYPTO_SECRETKEYBYTES
-#define PUBLIC_KEY_BYTES                      CRYPTO_PUBLICKEYBYTES
-#define SHARED_SECRET_BYTES                   CRYPTO_BYTES
-#define CIPHERTEXT_BYTES                      CRYPTO_CIPHERTEXTBYTES
+// HQC-128 API sizes, in bytes.
+#define SECRET_KEY_BYTES                      2289
+#define PUBLIC_KEY_BYTES                      2249
+#define SHARED_SECRET_BYTES                   64
+#define CIPHERTEXT_BYTES                      4497
 
 #define UTILS_REJECTION_THRESHOLD             16767881
 #define VEC_N_SIZE_BYTES                      CEIL_DIVIDE(PARAM_N, 8)

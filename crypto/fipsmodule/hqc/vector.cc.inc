@@ -3,7 +3,7 @@
  * @brief Implementation of vectors sampling and some utilities for the HQC scheme
  */
 
-#include "parameters.h"
+#include "params.h"
 #include "vector.h"
 #include <string.h>
 

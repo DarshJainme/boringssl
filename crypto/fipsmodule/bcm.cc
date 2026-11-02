@@ -99,6 +99,8 @@ OPENSSL_CLANG_PRAGMA("clang diagnostic ignored \"-Wheader-hygiene\"")
 #include "entropy/jitter.cc.inc"
 #include "hkdf/hkdf.cc.inc"
 #include "hmac/hmac.cc.inc"
+#include "hqc/shake.cc.inc"
+#include "hqc/vector.cc.inc"
 #include "keccak/keccak.cc.inc"
 #include "mldsa/mldsa.cc.inc"
 #include "mlkem/mlkem.cc.inc"
