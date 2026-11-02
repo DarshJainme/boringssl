@@ -285,5 +285,39 @@ TEST(HQCTest, ShakeSeedExpanderAlignment) {
   EXPECT_EQ(0, memcmp(output2, reference + 16, 8));
 }
 
+TEST(HQCTest, ShakePRNGKnownAnswer) {
+  uint8_t entropy[32];
+  uint8_t personalization[16];
+
+  for (size_t i = 0; i < sizeof(entropy); i++) {
+    entropy[i] = static_cast<uint8_t>(i);
+  }
+
+  for (size_t i = 0; i < sizeof(personalization); i++) {
+    personalization[i] = static_cast<uint8_t>(i + 32);
+  }
+
+  // Exact 64-byte SHAKE-256 output for PRNG_DOMAIN = 1
+  const uint8_t expected[64] = {
+      0x42, 0xc6, 0x67, 0xa1, 0x86, 0x39, 0x0f, 0x26,
+      0xc8, 0xf0, 0x24, 0xd3, 0x1d, 0x5f, 0xe3, 0xd2,
+      0x01, 0x45, 0xbc, 0x2f, 0xcc, 0xf2, 0x6c, 0x86,
+      0x5e, 0x20, 0xdf, 0x76, 0x26, 0xce, 0xf0, 0x9e,
+      0x4d, 0x9e, 0xad, 0xd2, 0x63, 0xd9, 0x5e, 0xde,
+      0x93, 0x4a, 0x74, 0xb3, 0x72, 0x1e, 0xaa, 0xb0,
+      0xa8, 0x4c, 0x24, 0x20, 0x15, 0xb6, 0x05, 0x75,
+      0xd7, 0xc1, 0x1a, 0xb9, 0x37, 0x1e, 0xef, 0x36
+  };
+
+  bssl::shake_state state;
+  uint8_t output[64];
+
+  bssl::shake_prng_init(&state, entropy, personalization,
+                        sizeof(entropy), sizeof(personalization));
+
+  bssl::shake_prng(&state, output, sizeof(output));
+
+  EXPECT_EQ(0, memcmp(output, expected, sizeof(expected)));
+}
 
 }  // namespace bssl
