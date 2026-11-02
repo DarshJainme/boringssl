@@ -16,8 +16,7 @@ void shake_prng_init(shake_state *state, uint8_t *entropy_input,uint8_t *persona
 
 void shake_prng(shake_state *state, uint8_t *output, uint32_t outlen);
 
-void seedexpander_init(shake_state *state, const uint8_t *seed,
-                       uint32_t seedlen);
+void seedexpander_init(shake_state *state, const uint8_t *seed, uint32_t seedlen);
 
 void seedexpander(shake_state *state, uint8_t *output, uint32_t outlen);
 
