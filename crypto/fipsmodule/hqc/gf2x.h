@@ -3,8 +3,8 @@
  * \brief Header file for gf2x.cc.inc
  */
 
-#ifndef OPENSSL_HEADER_HQC_GF2X_H
-#define OPENSSL_HEADER_HQC_GF2X_H
+#ifndef OPENSSL_HEADER_CRYPTO_FIPSMODULE_HQC_GF2X_H
+#define OPENSSL_HEADER_CRYPTO_FIPSMODULE_HQC_GF2X_H
 
 #include <stdint.h>
 

@@ -19,9 +19,33 @@
 #include "../fipsmodule/hqc/vector.h"
 #include "../fipsmodule/hqc/shake.h"
 #include "../fipsmodule/hqc/gf2x.h"
+#include "../fipsmodule/hqc/gf.h"
 
 #include <string.h>
 
+namespace {
+
+uint8_t ReferenceGfMul(uint8_t a, uint8_t b) {
+    uint16_t result = 0;
+    uint16_t multiplicand = a;
+
+    for (int i = 0; i < 8; ++i) {
+        if (b & 1) {
+            result ^= multiplicand;
+        }
+
+        b >>= 1;
+        multiplicand <<= 1;
+
+        if (multiplicand & 0x100) {
+            multiplicand ^= PARAM_GF_POLY;
+        }
+    }
+
+    return static_cast<uint8_t>(result);
+}
+
+}  // namespace
 namespace bssl {
 
 TEST(HQCTest, Basic) {
@@ -449,5 +473,78 @@ TEST(HQCTest, GF2xAliasing) {
   vect_mul(alias_b, a, alias_b);
 
   EXPECT_EQ(0, memcmp(alias_b, expected, sizeof(expected)));
+}
+TEST(HQCTest, GFMultiplicationExhaustive) {
+    for (uint16_t a = 0; a < 256; ++a) {
+        for (uint16_t b = 0; b < 256; ++b) {
+            uint8_t expected = ReferenceGfMul(
+                static_cast<uint8_t>(a),
+                static_cast<uint8_t>(b));
+
+            ASSERT_EQ(expected, gf_mul(a, b))
+                << "a = " << a << ", b = " << b;
+        }
+    }
+}
+TEST(HQCTest, GFSquare) {
+    for (uint16_t a = 0; a < 256; ++a) {
+        EXPECT_EQ(gf_mul(a, a), gf_square(a))
+            << "a = " << a;
+    }
+}
+
+TEST(HQCTest, GFInverse) {
+    EXPECT_EQ(0, gf_inverse(0));
+
+    for (uint16_t a = 1; a < 256; ++a) {
+        uint16_t inverse = gf_inverse(a);
+
+        EXPECT_EQ(1, gf_mul(a, inverse))
+            << "a = " << a
+            << ", inverse = " << inverse;
+    }
+}
+
+TEST(HQCTest, GFGenerateTables) {
+    uint16_t exp[258] = {};
+    uint16_t log[256] = {};
+
+    gf_generate(exp, log, PARAM_M);
+
+    for (size_t i = 0; i < 258; ++i) {
+        EXPECT_EQ(gf_exp[i], exp[i]) << "exp index = " << i;
+    }
+
+    for (size_t i = 0; i < 256; ++i) {
+        EXPECT_EQ(gf_log[i], log[i]) << "log index = " << i;
+    }
+}
+
+TEST(HQCTest, GFMod) {
+    for (uint16_t i = 0; i < 2 * PARAM_GF_MUL_ORDER; ++i) {
+        EXPECT_EQ(i % PARAM_GF_MUL_ORDER, gf_mod(i))
+            << "i = " << i;
+    }
+}
+
+TEST(HQCTest, GFTablesBijection) {
+  // exp(log(a)) == a for all a in [1, 255]
+  for (uint16_t a = 1; a < 256; ++a) {
+    EXPECT_EQ(a, gf_exp[gf_log[a]]) << "a = " << a;
+  }
+
+  // log(exp(i)) == i for all i in [0, 254]
+  for (uint16_t i = 0; i < 255; ++i) {
+    EXPECT_EQ(i, gf_log[gf_exp[i]]) << "i = " << i;
+  }
+}
+
+TEST(HQCTest, GFHighBitTruncation) {
+  uint16_t a = 0x0105; // 5 with high byte set
+  uint16_t b = 0x0203; // 3 with high byte set
+
+  EXPECT_EQ(gf_mul(5, 3), gf_mul(a, b));
+  EXPECT_EQ(gf_square(5), gf_square(a));
+  EXPECT_EQ(gf_inverse(5), gf_inverse(a));
 }
 }  // namespace bssl
