@@ -18,6 +18,8 @@
 #include "../fipsmodule/hqc/params.h"
 #include "../fipsmodule/hqc/vector.h"
 #include "../fipsmodule/hqc/shake.h"
+#include "../fipsmodule/hqc/gf2x.h"
+
 #include <string.h>
 
 namespace bssl {
@@ -320,4 +322,132 @@ TEST(HQCTest, ShakePRNGKnownAnswer) {
   EXPECT_EQ(0, memcmp(output, expected, sizeof(expected)));
 }
 
+TEST(HQCTest, GF2xMultiplyByZero) {
+  uint64_t a[VEC_N_SIZE_64] = {};
+  uint64_t zero[VEC_N_SIZE_64] = {};
+  uint64_t out[VEC_N_SIZE_64] = {};
+
+  a[0] = 0x123456789abcdef0ULL;
+  a[1] = 0xaaaaaaaaaaaaaaaaULL;
+
+  vect_mul(out, a, zero);
+
+  EXPECT_EQ(0, memcmp(out, zero, sizeof(out)));
+
+  vect_mul(out, zero, a);
+
+  EXPECT_EQ(0, memcmp(out, zero, sizeof(out)));
+}
+
+TEST(HQCTest, GF2xMultiplyByOne) {
+  uint64_t a[VEC_N_SIZE_64] = {};
+  uint64_t one[VEC_N_SIZE_64] = {};
+  uint64_t out[VEC_N_SIZE_64] = {};
+
+  for (size_t i = 0; i < VEC_N_SIZE_64; ++i) {
+    a[i] = UINT64_C(0xd1b54a32d192ed03) * (i + 1);
+  }
+
+  a[VEC_N_SIZE_64 - 1] &= RED_MASK;
+  one[0] = 1;
+
+  vect_mul(out, a, one);
+
+  EXPECT_EQ(0, memcmp(out, a, sizeof(out)));
+
+  vect_mul(out, one, a);
+
+  EXPECT_EQ(0, memcmp(out, a, sizeof(out)));
+}
+
+TEST(HQCTest, GF2xMultiplication) {
+  uint64_t a[VEC_N_SIZE_64] = {};
+  uint64_t b[VEC_N_SIZE_64] = {};
+  uint64_t expected[VEC_N_SIZE_64] = {};
+  uint64_t actual[VEC_N_SIZE_64] = {};
+
+  a[0] = UINT64_C(0x8000000000000001);
+  b[0] = UINT64_C(0x0000000000000003);
+
+  expected[0] = UINT64_C(0x8000000000000003);
+  expected[1] = 1;
+
+  vect_mul(actual, a, b);
+
+  EXPECT_EQ(0, memcmp(actual, expected, sizeof(actual)));
+}
+
+TEST(HQCTest, GF2xModularReduction) {
+  uint64_t a[VEC_N_SIZE_64] = {};
+  uint64_t b[VEC_N_SIZE_64] = {};
+  uint64_t expected[VEC_N_SIZE_64] = {};
+  uint64_t actual[VEC_N_SIZE_64] = {};
+
+  // A(X) = X^(PARAM_N - 1)
+  a[(PARAM_N - 1) / 64] =
+      UINT64_C(1) << ((PARAM_N - 1) % 64);
+
+  // B(X) = X
+  b[0] = 2;
+
+  // Expected result = 1
+  expected[0] = 1;
+
+  vect_mul(actual, a, b);
+
+  EXPECT_EQ(0, memcmp(actual, expected, sizeof(actual)));
+}
+
+TEST(HQCTest, GF2xHighestDegreeWraparound) {
+  uint64_t a[VEC_N_SIZE_64] = {};
+  uint64_t b[VEC_N_SIZE_64] = {};
+  uint64_t expected[VEC_N_SIZE_64] = {};
+  uint64_t actual[VEC_N_SIZE_64] = {};
+
+  uint32_t highest_bit = PARAM_N - 1;
+
+  a[highest_bit / 64] =
+      UINT64_C(1) << (highest_bit % 64);
+
+  b[highest_bit / 64] =
+      UINT64_C(1) << (highest_bit % 64);
+
+  // 17667 = 276 * 64 + 3
+  expected[276] = UINT64_C(1) << 3;
+
+  vect_mul(actual, a, b);
+
+  EXPECT_EQ(0, memcmp(actual, expected, sizeof(actual)));
+}
+
+TEST(HQCTest, GF2xAliasing) {
+  uint64_t a[VEC_N_SIZE_64] = {};
+  uint64_t b[VEC_N_SIZE_64] = {};
+  uint64_t expected[VEC_N_SIZE_64] = {};
+  uint64_t alias_a[VEC_N_SIZE_64] = {};
+  uint64_t alias_b[VEC_N_SIZE_64] = {};
+
+  for (size_t i = 0; i < VEC_N_SIZE_64; ++i) {
+    a[i] = UINT64_C(0x9e3779b97f4a7c15) * (i + 1);
+    b[i] = UINT64_C(0xd1b54a32d192ed03) * (i + 1);
+  }
+
+  a[VEC_N_SIZE_64 - 1] &= RED_MASK;
+  b[VEC_N_SIZE_64 - 1] &= RED_MASK;
+
+  // Calculate the expected output without aliasing.
+  vect_mul(expected, a, b);
+
+  // Output aliases the first input.
+  memcpy(alias_a, a, sizeof(alias_a));
+  vect_mul(alias_a, alias_a, b);
+
+  EXPECT_EQ(0, memcmp(alias_a, expected, sizeof(expected)));
+
+  // Output aliases the second input.
+  memcpy(alias_b, b, sizeof(alias_b));
+  vect_mul(alias_b, a, alias_b);
+
+  EXPECT_EQ(0, memcmp(alias_b, expected, sizeof(expected)));
+}
 }  // namespace bssl
