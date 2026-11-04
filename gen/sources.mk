@@ -77,6 +77,7 @@ boringssl_bcm_internal_headers := \
   crypto/fipsmodule/entropy/sha512.cc.inc \
   crypto/fipsmodule/hkdf/hkdf.cc.inc \
   crypto/fipsmodule/hmac/hmac.cc.inc \
+  crypto/fipsmodule/hqc/fft.h \
   crypto/fipsmodule/hqc/gf.cc.inc \
   crypto/fipsmodule/hqc/gf2x.cc.inc \
   crypto/fipsmodule/hqc/shake.cc.inc \

@@ -20,6 +20,7 @@
 #include "../fipsmodule/hqc/shake.h"
 #include "../fipsmodule/hqc/gf2x.h"
 #include "../fipsmodule/hqc/gf.h"
+#include "../fipsmodule/hqc/fft.h"
 
 #include <string.h>
 
@@ -43,6 +44,32 @@ uint8_t ReferenceGfMul(uint8_t a, uint8_t b) {
     }
 
     return static_cast<uint8_t>(result);
+}
+
+uint16_t EvaluatePolynomial(const uint16_t *coeffs,
+                            size_t coeff_count, uint16_t x) {
+    uint16_t result = 0;
+
+    for (size_t i = coeff_count; i > 0; --i) {
+        result = bssl::gf_mul(result, x) ^ coeffs[i - 1];
+    }
+
+    return result;
+}
+
+uint16_t FFTPointForIndex(size_t index) {
+    const size_t half = 1U << (PARAM_M - 1);
+
+    size_t subset = index % half;
+    uint16_t x = (index >= half) ? 1 : 0;
+
+    for (size_t bit = 0; bit < PARAM_M - 1; ++bit) {
+        if (subset & (1U << bit)) {
+            x ^= 1U << (PARAM_M - 1 - bit);
+        }
+    }
+
+    return x;
 }
 
 }  // namespace
@@ -546,5 +573,137 @@ TEST(HQCTest, GFHighBitTruncation) {
   EXPECT_EQ(gf_mul(5, 3), gf_mul(a, b));
   EXPECT_EQ(gf_square(5), gf_square(a));
   EXPECT_EQ(gf_inverse(5), gf_inverse(a));
+}
+
+TEST(HQCTest, FFTZeroPolynomial) {
+    uint16_t f[1 << PARAM_FFT] = {};
+    uint16_t w[1 << PARAM_M] = {};
+
+    fft(w, f, 1);
+
+    for (size_t i = 0; i < (1U << PARAM_M); ++i) {
+        EXPECT_EQ(0, w[i]) << "index = " << i;
+    }
+}
+
+TEST(HQCTest, FFTConstantPolynomial) {
+    uint16_t f[1 << PARAM_FFT] = {};
+    uint16_t w[1 << PARAM_M] = {};
+
+    f[0] = 0xA7;
+
+    fft(w, f, 1);
+
+    for (size_t i = 0; i < (1U << PARAM_M); ++i) {
+        EXPECT_EQ(f[0], w[i]) << "index = " << i;
+    }
+}
+
+TEST(HQCTest, FFTLinearPolynomial) {
+    uint16_t f[1 << PARAM_FFT] = {};
+    uint16_t w[1 << PARAM_M] = {};
+
+    f[0] = 0x53;
+    f[1] = 0xCA;
+
+    fft(w, f, 2);
+
+    for (size_t i = 0; i < (1U << PARAM_M); ++i) {
+        uint16_t x = FFTPointForIndex(i);
+        uint16_t expected = f[0] ^ gf_mul(f[1], x);
+
+        EXPECT_EQ(expected, w[i]) << "index = " << i;
+    }
+}
+
+TEST(HQCTest, FFTPolynomialEvaluation) {
+    for (size_t coeff_count = 1;
+         coeff_count <= (1U << PARAM_FFT);
+         ++coeff_count) {
+
+        uint16_t f[1 << PARAM_FFT] = {};
+
+        for (size_t i = 0; i < coeff_count; ++i) {
+            f[i] = (i * 73 + coeff_count * 29 + 0x5B) & 0xFF;
+        }
+
+        uint16_t w[1 << PARAM_M] = {};
+
+        fft(w, f, coeff_count);
+
+        for (size_t i = 0; i < (1U << PARAM_M); ++i) {
+            uint16_t x = FFTPointForIndex(i);
+
+            uint16_t expected = EvaluatePolynomial(
+                f, coeff_count, x);
+
+            ASSERT_EQ(expected, w[i])
+                << "coeff_count = " << coeff_count
+                << ", index = " << i
+                << ", x = " << x;
+        }
+    }
+}
+
+TEST(HQCTest, FFTRetrieveErrorPolynomial) {
+    const size_t size = 1U << PARAM_M;
+    const size_t half = 1U << (PARAM_M - 1);
+
+    for (size_t zero_index = 0; zero_index < size; ++zero_index) {
+        uint16_t w[1 << PARAM_M];
+        uint8_t error[1 << PARAM_M] = {};
+
+        for (size_t i = 0; i < size; ++i) {
+            w[i] = 1;
+        }
+
+        // Introduce exactly one zero evaluation.
+        w[zero_index] = 0;
+
+        fft_retrieve_error_poly(error, w);
+
+        size_t expected_index;
+
+        if (zero_index == 0 || zero_index == half) {
+            expected_index = 0;
+        } else {
+            uint16_t x = FFTPointForIndex(zero_index);
+            expected_index = PARAM_GF_MUL_ORDER - gf_log[x];
+        }
+
+        for (size_t i = 0; i < size; ++i) {
+            EXPECT_EQ(i == expected_index ? 1 : 0, error[i])
+                << "zero_index = " << zero_index
+                << ", error_index = " << i;
+        }
+    }
+}
+TEST(HQCTest, FFTRetrieveMultipleErrors) {
+    const size_t size = 1U << PARAM_M;
+    uint16_t w[1 << PARAM_M];
+    uint8_t error[1 << PARAM_M] = {};
+
+    for (size_t i = 0; i < size; ++i) {
+        w[i] = 1;
+    }
+
+    size_t zero1 = 5;
+    size_t zero2 = 42;
+
+    w[zero1] = 0;
+    w[zero2] = 0;
+
+    fft_retrieve_error_poly(error, w);
+
+    uint16_t x1 = FFTPointForIndex(zero1);
+    uint16_t x2 = FFTPointForIndex(zero2);
+
+    size_t idx1 = PARAM_GF_MUL_ORDER - gf_log[x1];
+    size_t idx2 = PARAM_GF_MUL_ORDER - gf_log[x2];
+
+    for (size_t i = 0; i < size; ++i) {
+        EXPECT_EQ(i == idx1 || i == idx2 ? 1 : 0, error[i])
+            << "error index = " << i;
+    }
 }
 }  // namespace bssl
