@@ -102,6 +102,7 @@ OPENSSL_CLANG_PRAGMA("clang diagnostic ignored \"-Wheader-hygiene\"")
 #include "hqc/fft.cc.inc"
 #include "hqc/gf.cc.inc"
 #include "hqc/gf2x.cc.inc"
+#include "hqc/reed_solomon.cc.inc"
 #include "hqc/shake.cc.inc"
 #include "hqc/vector.cc.inc"
 #include "keccak/keccak.cc.inc"

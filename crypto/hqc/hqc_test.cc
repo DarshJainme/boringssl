@@ -21,6 +21,7 @@
 #include "../fipsmodule/hqc/gf2x.h"
 #include "../fipsmodule/hqc/gf.h"
 #include "../fipsmodule/hqc/fft.h"
+#include "../fipsmodule/hqc/reed_solomon.h"
 
 #include <string.h>
 
@@ -72,7 +73,39 @@ uint16_t FFTPointForIndex(size_t index) {
     return x;
 }
 
+bool TestReedSolomonCorrection(size_t error_count) {
+    uint64_t msg[VEC_K_SIZE_64] = {};
+    uint64_t cdw[VEC_N1_SIZE_64] = {};
+    uint64_t corrupted[VEC_N1_SIZE_64] = {};
+    uint64_t decoded[VEC_K_SIZE_64] = {};
+
+    uint8_t *msg_bytes = reinterpret_cast<uint8_t *>(msg);
+
+    for (size_t i = 0; i < PARAM_K; ++i) {
+        msg_bytes[i] = static_cast<uint8_t>(i * 17 + 0x31);
+    }
+
+     bssl::reed_solomon_encode(cdw, msg);
+
+    memcpy(corrupted, cdw, PARAM_N1);
+
+    uint8_t *corrupted_bytes =
+        reinterpret_cast<uint8_t *>(corrupted);
+
+    for (size_t i = 0; i < error_count; ++i) {
+        size_t position = (i * 7 + 3) % PARAM_N1;
+        uint8_t error_value = static_cast<uint8_t>(i * 29 + 1);
+
+        corrupted_bytes[position] ^= error_value;
+    }
+
+    bssl::reed_solomon_decode(decoded, corrupted);
+
+    return memcmp(decoded, msg, PARAM_K) == 0;
+}
+
 }  // namespace
+
 namespace bssl {
 
 TEST(HQCTest, Basic) {
@@ -706,4 +739,73 @@ TEST(HQCTest, FFTRetrieveMultipleErrors) {
             << "error index = " << i;
     }
 }
+TEST(HQCTest, ReedSolomonNoErrors) {
+    EXPECT_TRUE(TestReedSolomonCorrection(0));
+}
+
+TEST(HQCTest, ReedSolomonSingleError) {
+    EXPECT_TRUE(TestReedSolomonCorrection(1));
+}
+
+TEST(HQCTest, ReedSolomonMaximumCorrectableErrors) {
+    EXPECT_TRUE(TestReedSolomonCorrection(PARAM_DELTA));
+}
+
+TEST(HQCTest, ReedSolomonGeneratorPolyMatch) {
+  uint16_t generated_poly[2 * PARAM_DELTA + 1] = {};
+  bssl::compute_generator_poly(generated_poly);
+
+  const uint16_t expected_poly[] = {RS_POLY_COEFS};
+  const size_t poly_len = sizeof(expected_poly) / sizeof(expected_poly[0]);
+
+  EXPECT_EQ(poly_len, static_cast<size_t>(2 * PARAM_DELTA + 1));
+  EXPECT_EQ(0, memcmp(generated_poly, expected_poly, sizeof(expected_poly)));
+}
+
+TEST(HQCTest, ReedSolomonAllZeroes) {
+  uint64_t msg[VEC_K_SIZE_64] = {};
+  uint64_t cdw[VEC_N1_SIZE_64] = {};
+  uint64_t decoded[VEC_K_SIZE_64] = {};
+
+  bssl::reed_solomon_encode(cdw, msg);
+
+  // Encoding an all-zero message must produce an all-zero codeword
+  uint64_t zero_cdw[VEC_N1_SIZE_64] = {};
+  EXPECT_EQ(0, memcmp(cdw, zero_cdw, sizeof(cdw)));
+
+  bssl::reed_solomon_decode(decoded, cdw);
+  EXPECT_EQ(0, memcmp(decoded, msg, sizeof(msg)));
+}
+
+TEST(HQCTest, ReedSolomonRandomizedTrials) {
+  uint64_t state = UINT64_C(0x123456789abcdef0);
+
+  for (size_t trial = 0; trial < 20; ++trial) {
+    uint64_t msg[VEC_K_SIZE_64] = {};
+    uint64_t cdw[VEC_N1_SIZE_64] = {};
+    uint64_t corrupted[VEC_N1_SIZE_64] = {};
+    uint64_t decoded[VEC_K_SIZE_64] = {};
+
+    for (size_t i = 0; i < VEC_K_SIZE_64; ++i) {
+      state ^= state << 13;
+      state ^= state >> 7;
+      state ^= state << 17;
+      msg[i] = state;
+    }
+
+    bssl::reed_solomon_encode(cdw, msg);
+    memcpy(corrupted, cdw, PARAM_N1);
+
+    uint8_t *corrupted_bytes = reinterpret_cast<uint8_t *>(corrupted);
+    for (size_t err = 0; err < PARAM_DELTA; ++err) {
+      size_t pos = (err * 5 + trial) % PARAM_N1;
+      corrupted_bytes[pos] ^= static_cast<uint8_t>((err + 1) * 19);
+    }
+
+    bssl::reed_solomon_decode(decoded, corrupted);
+    EXPECT_EQ(0, memcmp(decoded, msg, PARAM_K))
+        << "Mismatch on trial " << trial;
+  }
+}
+
 }  // namespace bssl
