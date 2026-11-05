@@ -82,6 +82,7 @@ set(
   crypto/fipsmodule/entropy/sha512.cc.inc
   crypto/fipsmodule/hkdf/hkdf.cc.inc
   crypto/fipsmodule/hmac/hmac.cc.inc
+  crypto/fipsmodule/hqc/code.cc.inc
   crypto/fipsmodule/hqc/fft.cc.inc
   crypto/fipsmodule/hqc/gf.cc.inc
   crypto/fipsmodule/hqc/gf2x.cc.inc
@@ -696,6 +697,7 @@ set(
   crypto/fipsmodule/ec/p256_table.h
   crypto/fipsmodule/ecdsa/internal.h
   crypto/fipsmodule/entropy/internal.h
+  crypto/fipsmodule/hqc/code.h
   crypto/fipsmodule/hqc/domains.h
   crypto/fipsmodule/hqc/fft.h
   crypto/fipsmodule/hqc/gf.h
