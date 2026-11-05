@@ -24,6 +24,7 @@
 #include "../fipsmodule/hqc/reed_solomon.h"
 #include "../fipsmodule/hqc/reed_muller.h"
 #include "../fipsmodule/hqc/code.h"
+#include "../fipsmodule/hqc/parsing.h"
 
 #include <string.h>
 
@@ -134,59 +135,59 @@ TEST(HQCTest, Parameters) {
 }
 
 TEST(HQCTest, VectorAdd) {
-  uint64_t a[4] = {
-      0x0123456789abcdefULL,
-      0xfedcba9876543210ULL,
-      0xaaaaaaaaaaaaaaaaULL,
-      0x5555555555555555ULL,
-  };
+  uint64_t v1[VEC_N_SIZE_64] = {};
+  uint64_t v2[VEC_N_SIZE_64] = {};
+  uint64_t out[VEC_N_SIZE_64] = {};
+  uint64_t expected[VEC_N_SIZE_64] = {};
 
-  uint64_t b[4] = {
-      0xffff0000ffff0000ULL,
-      0x0000ffff0000ffffULL,
-      0x5555555555555555ULL,
-      0xaaaaaaaaaaaaaaaaULL,
-  };
+  for (size_t i = 0; i < VEC_N_SIZE_64; ++i) {
+    v1[i] = UINT64_C(0x123456789ABCDEF0) + i;
+    v2[i] = UINT64_C(0xFEDCBA9876543210) ^ i;
+    expected[i] = v1[i] ^ v2[i];
+  }
 
-  uint64_t out[4] = {};
-
-  vect_add(out, a, b, 4);
-
-  EXPECT_EQ(out[0], 0xfedc45677654cdefULL);
-  EXPECT_EQ(out[1], 0xfedc45677654cdefULL);
-  EXPECT_EQ(out[2], 0xffffffffffffffffULL);
-  EXPECT_EQ(out[3], 0xffffffffffffffffULL);
+  vect_add(out, v1, v2, VEC_N_SIZE_64);
+  EXPECT_EQ(0, memcmp(out, expected, sizeof(out)));
 }
 
 TEST(HQCTest, VectorCompare) {
-  uint8_t a[] = {1, 2, 3, 4, 5};
-  uint8_t b[] = {1, 2, 3, 4, 5};
-  uint8_t c[] = {1, 2, 3, 4, 6};
-  uint8_t d[] = {1, 2, 3, 4, 4};
+  uint8_t v1[64] = {};
+  uint8_t v2[64] = {};
 
-  EXPECT_EQ(vect_compare(a, b, sizeof(a)), 0);
-  EXPECT_EQ(vect_compare(a, c, sizeof(a)), 1);
-  EXPECT_EQ(vect_compare(a, d, sizeof(a)), 1);
+  for (size_t i = 0; i < sizeof(v1); ++i) {
+    v1[i] = static_cast<uint8_t>(i + 1);
+    v2[i] = static_cast<uint8_t>(i + 1);
+  }
+
+  // Identical vectors must return 0
+  EXPECT_EQ(0, vect_compare(v1, v2, sizeof(v1)));
+
+  // A single byte difference must return non-zero
+  v2[31] ^= 0x01;
+  EXPECT_NE(0, vect_compare(v1, v2, sizeof(v1)));
 }
 
 TEST(HQCTest, VectorResize) {
-  uint64_t input[VEC_N1N2_SIZE_64] = {};
-  uint64_t output[VEC_N_SIZE_64] = {};
+  uint64_t in[VEC_N1N2_SIZE_64] = {};
+  uint64_t out[VEC_N1N2_SIZE_64] = {};
 
-  input[0] = 0x0123456789abcdefULL;
-  input[VEC_N1N2_SIZE_64 - 1] = 0x123456789abcdef0ULL;
+  for (size_t i = 0; i < VEC_N1N2_SIZE_64; ++i) {
+    in[i] = UINT64_C(0xFFFFFFFFFFFFFFFF);
+  }
 
-  vect_resize(output, PARAM_N, input, PARAM_N1N2);
+  // 1. Truncation mode: size_o < size_v with non-multiple of 64 bits
+  uint32_t target_bits = PARAM_N1N2 - 13;
+  vect_resize(out, target_bits, in, PARAM_N1N2);
 
-  EXPECT_EQ(output[0], input[0]);
-  EXPECT_EQ(output[VEC_N1N2_SIZE_64 - 1],
-            input[VEC_N1N2_SIZE_64 - 1]);
+  // Lower words must remain fully set
+  for (size_t i = 0; i < VEC_N1N2_SIZE_64 - 1; ++i) {
+    EXPECT_EQ(UINT64_C(0xFFFFFFFFFFFFFFFF), out[i]);
+  }
 
-  uint64_t truncated[VEC_N1N2_SIZE_64] = {};
-
-  vect_resize(truncated, PARAM_N1N2, output, PARAM_N);
-
-  EXPECT_EQ(truncated[0], input[0]);
+  // 2. Expansion / Equal size mode: size_o >= size_v
+  uint64_t out_expand[VEC_N1N2_SIZE_64] = {};
+  vect_resize(out_expand, PARAM_N1N2, in, PARAM_N1N2);
+  EXPECT_EQ(0, memcmp(in, out_expand, VEC_N1N2_SIZE_BYTES));
 }
 
 TEST(HQCTest, ShakeSeedExpander) {
@@ -1116,5 +1117,240 @@ TEST(HQCTest, CodeCombinedInnerAndOuterErrorCorrection) {
 
   code_decode(decoded, encoded);
   EXPECT_EQ(0, memcmp(decoded, msg, PARAM_K));
+}
+TEST(HQCTest, VectorSetRandomFixedWeight) {
+    const uint16_t weights[] = {
+        0, PARAM_OMEGA, PARAM_OMEGA_R
+    };
+
+    uint8_t seed[SEED_BYTES];
+
+    for (size_t i = 0; i < sizeof(seed); ++i) {
+        seed[i] = static_cast<uint8_t>(i);
+    }
+
+    for (uint16_t requested_weight : weights) {
+        shake_state state;
+        uint64_t v[VEC_N_SIZE_64] = {};
+
+        seedexpander_init(&state, seed, sizeof(seed));
+
+        vect_set_random_fixed_weight(&state, v, requested_weight);
+
+        size_t actual_weight = 0;
+
+        for (size_t i = 0; i < VEC_N_SIZE_64; ++i) {
+            uint64_t word = v[i];
+
+            while (word != 0) {
+                word &= word - 1;
+                ++actual_weight;
+            }
+        }
+
+        EXPECT_EQ(static_cast<size_t>(requested_weight), actual_weight);
+
+        EXPECT_EQ(UINT64_C(0),
+                  v[VEC_N_SIZE_64 - 1] &
+                  ~static_cast<uint64_t>(RED_MASK));
+    }
+}
+TEST(HQCTest, VectorSetRandomFixedWeightDeterministic) {
+    uint8_t seed[SEED_BYTES];
+
+    for (size_t i = 0; i < sizeof(seed); ++i) {
+        seed[i] = static_cast<uint8_t>(i + 17);
+    }
+
+    shake_state state1, state2;
+
+    uint64_t v1[VEC_N_SIZE_64] = {};
+    uint64_t v2[VEC_N_SIZE_64] = {};
+
+    seedexpander_init(&state1, seed, sizeof(seed));
+    seedexpander_init(&state2, seed, sizeof(seed));
+
+    vect_set_random_fixed_weight(&state1, v1, PARAM_OMEGA);
+    vect_set_random_fixed_weight(&state2, v2, PARAM_OMEGA);
+
+    EXPECT_EQ(0, memcmp(v1, v2, sizeof(v1)));
+}
+TEST(HQCTest, VectorSetRandom) {
+    uint8_t seed[SEED_BYTES];
+
+    for (size_t i = 0; i < sizeof(seed); ++i) {
+        seed[i] = static_cast<uint8_t>(i + 31);
+    }
+
+    shake_state state;
+    uint64_t v[VEC_N_SIZE_64] = {};
+
+    seedexpander_init(&state, seed, sizeof(seed));
+
+    vect_set_random(&state, v);
+
+    uint64_t zero[VEC_N_SIZE_64] = {};
+
+    EXPECT_NE(0, memcmp(v, zero, sizeof(v)));
+    EXPECT_EQ(UINT64_C(0),
+              v[VEC_N_SIZE_64 - 1] &
+              ~static_cast<uint64_t>(RED_MASK));
+}
+TEST(HQCTest, VectorSetRandomDeterministic) {
+    uint8_t seed[SEED_BYTES];
+
+    for (size_t i = 0; i < sizeof(seed); ++i) {
+        seed[i] = static_cast<uint8_t>(i + 53);
+    }
+
+    shake_state state1, state2;
+
+    uint64_t v1[VEC_N_SIZE_64] = {};
+    uint64_t v2[VEC_N_SIZE_64] = {};
+
+    seedexpander_init(&state1, seed, sizeof(seed));
+    seedexpander_init(&state2, seed, sizeof(seed));
+
+    vect_set_random(&state1, v1);
+    vect_set_random(&state2, v2);
+
+    EXPECT_EQ(0, memcmp(v1, v2, sizeof(v1)));
+}
+TEST(HQCTest, ParsingSecretKeyRoundTrip) {
+    uint8_t sk_seed[SEED_BYTES];
+    uint8_t pk[PUBLIC_KEY_BYTES] = {};
+    uint8_t sk[SECRET_KEY_BYTES] = {};
+    uint8_t parsed_pk[PUBLIC_KEY_BYTES] = {};
+
+    for (size_t i = 0; i < SEED_BYTES; ++i) {
+        sk_seed[i] = static_cast<uint8_t>(i * 13 + 7);
+    }
+
+    for (size_t i = 0; i < PUBLIC_KEY_BYTES; ++i) {
+        pk[i] = static_cast<uint8_t>(i * 17 + 31);
+    }
+
+    hqc_secret_key_to_string(sk, sk_seed, pk);
+
+    EXPECT_EQ(0, memcmp(sk, sk_seed, SEED_BYTES));
+    EXPECT_EQ(0, memcmp(sk + SEED_BYTES, pk, PUBLIC_KEY_BYTES));
+
+    uint64_t x[VEC_N_SIZE_64] = {};
+    uint64_t y[VEC_N_SIZE_64] = {};
+
+    hqc_secret_key_from_string(x, y, parsed_pk, sk);
+
+    EXPECT_EQ(0, memcmp(parsed_pk, pk, PUBLIC_KEY_BYTES));
+
+    // Independently reconstruct the expected secret vectors.
+    shake_state state;
+    uint64_t expected_x[VEC_N_SIZE_64] = {};
+    uint64_t expected_y[VEC_N_SIZE_64] = {};
+
+    seedexpander_init(&state, sk_seed, SEED_BYTES);
+
+    vect_set_random_fixed_weight(&state, expected_x, PARAM_OMEGA);
+    vect_set_random_fixed_weight(&state, expected_y, PARAM_OMEGA);
+
+    EXPECT_EQ(0, memcmp(x, expected_x, sizeof(x)));
+    EXPECT_EQ(0, memcmp(y, expected_y, sizeof(y)));
+}
+TEST(HQCTest, ParsingPublicKeyRoundTrip) {
+    uint8_t pk_seed[SEED_BYTES];
+
+    uint64_t s[VEC_N_SIZE_64] = {};
+    uint64_t h[VEC_N_SIZE_64] = {};
+    uint64_t parsed_s[VEC_N_SIZE_64] = {};
+    uint64_t expected_h[VEC_N_SIZE_64] = {};
+
+    uint8_t pk[PUBLIC_KEY_BYTES] = {};
+
+    for (size_t i = 0; i < SEED_BYTES; ++i) {
+        pk_seed[i] = static_cast<uint8_t>(i * 19 + 11);
+    }
+
+    uint8_t *s_bytes = reinterpret_cast<uint8_t *>(s);
+
+    for (size_t i = 0; i < VEC_N_SIZE_BYTES; ++i) {
+        s_bytes[i] = static_cast<uint8_t>(i * 23 + 5);
+    }
+
+    s[VEC_N_SIZE_64 - 1] &= RED_MASK;
+
+    hqc_public_key_to_string(pk, pk_seed, s);
+
+    EXPECT_EQ(0, memcmp(pk, pk_seed, SEED_BYTES));
+    EXPECT_EQ(0, memcmp(pk + SEED_BYTES, s, VEC_N_SIZE_BYTES));
+
+    hqc_public_key_from_string(h, parsed_s, pk);
+
+    EXPECT_EQ(0, memcmp(parsed_s, s, VEC_N_SIZE_BYTES));
+
+    shake_state state;
+
+    seedexpander_init(&state, pk_seed, SEED_BYTES);
+    vect_set_random(&state, expected_h);
+
+    EXPECT_EQ(0, memcmp(h, expected_h, sizeof(h)));
+}
+TEST(HQCTest, ParsingCiphertextRoundTrip) {
+    uint64_t u[VEC_N_SIZE_64] = {};
+    uint64_t v[VEC_N1N2_SIZE_64] = {};
+
+    uint64_t parsed_u[VEC_N_SIZE_64] = {};
+    uint64_t parsed_v[VEC_N1N2_SIZE_64] = {};
+
+    uint8_t d[SHAKE256_512_BYTES] = {};
+    uint8_t parsed_d[SHAKE256_512_BYTES] = {};
+
+    uint8_t ct[VEC_N_SIZE_BYTES +
+               VEC_N1N2_SIZE_BYTES +
+               SHAKE256_512_BYTES] = {};
+
+    uint8_t ct_roundtrip[VEC_N_SIZE_BYTES +
+                         VEC_N1N2_SIZE_BYTES +
+                         SHAKE256_512_BYTES] = {};
+
+    uint8_t *u_bytes = reinterpret_cast<uint8_t *>(u);
+    uint8_t *v_bytes = reinterpret_cast<uint8_t *>(v);
+
+    for (size_t i = 0; i < VEC_N_SIZE_BYTES; ++i) {
+        u_bytes[i] = static_cast<uint8_t>(i * 7 + 13);
+    }
+
+    for (size_t i = 0; i < VEC_N1N2_SIZE_BYTES; ++i) {
+        v_bytes[i] = static_cast<uint8_t>(i * 11 + 29);
+    }
+
+    for (size_t i = 0; i < sizeof(d); ++i) {
+        d[i] = static_cast<uint8_t>(i * 17 + 41);
+    }
+
+    hqc_ciphertext_to_string(ct, u, v, d);
+
+    // Verify the serialized layout.
+    EXPECT_EQ(0, memcmp(ct, u, VEC_N_SIZE_BYTES));
+
+    EXPECT_EQ(0, memcmp(
+        ct + VEC_N_SIZE_BYTES,
+        v,
+        VEC_N1N2_SIZE_BYTES));
+
+    EXPECT_EQ(0, memcmp(
+        ct + VEC_N_SIZE_BYTES + VEC_N1N2_SIZE_BYTES,
+        d,
+        sizeof(d)));
+
+    hqc_ciphertext_from_string(
+        parsed_u, parsed_v, parsed_d, ct);
+
+    EXPECT_EQ(0, memcmp(u, parsed_u, VEC_N_SIZE_BYTES));
+    EXPECT_EQ(0, memcmp(v, parsed_v, VEC_N1N2_SIZE_BYTES));
+    EXPECT_EQ(0, memcmp(d, parsed_d, sizeof(d)));
+
+    hqc_ciphertext_to_string(
+        ct_roundtrip, parsed_u, parsed_v, parsed_d);
+
+    EXPECT_EQ(0, memcmp(ct, ct_roundtrip, sizeof(ct)));
 }
 }  // namespace bssl
