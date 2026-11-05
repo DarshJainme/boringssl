@@ -85,6 +85,7 @@ set(
   crypto/fipsmodule/hqc/fft.cc.inc
   crypto/fipsmodule/hqc/gf.cc.inc
   crypto/fipsmodule/hqc/gf2x.cc.inc
+  crypto/fipsmodule/hqc/reed_muller.cc.inc
   crypto/fipsmodule/hqc/reed_solomon.cc.inc
   crypto/fipsmodule/hqc/shake.cc.inc
   crypto/fipsmodule/hqc/vector.cc.inc
@@ -700,6 +701,7 @@ set(
   crypto/fipsmodule/hqc/gf.h
   crypto/fipsmodule/hqc/gf2x.h
   crypto/fipsmodule/hqc/params.h
+  crypto/fipsmodule/hqc/reed_muller.h
   crypto/fipsmodule/hqc/reed_solomon.h
   crypto/fipsmodule/hqc/shake.h
   crypto/fipsmodule/hqc/vector.h

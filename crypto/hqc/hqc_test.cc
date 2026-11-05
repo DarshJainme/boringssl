@@ -22,6 +22,7 @@
 #include "../fipsmodule/hqc/gf.h"
 #include "../fipsmodule/hqc/fft.h"
 #include "../fipsmodule/hqc/reed_solomon.h"
+#include "../fipsmodule/hqc/reed_muller.h"
 
 #include <string.h>
 
@@ -808,4 +809,159 @@ TEST(HQCTest, ReedSolomonRandomizedTrials) {
   }
 }
 
+TEST(HQCTest, ReedMullerZeroMessage) {
+    uint64_t msg[VEC_N1_SIZE_64] = {};
+    uint64_t cdw[VEC_N1N2_SIZE_64] = {};
+    uint64_t decoded[VEC_N1_SIZE_64] = {};
+
+    reed_muller_encode(cdw, msg);
+
+    uint64_t zero_cdw[VEC_N1N2_SIZE_64] = {};
+    EXPECT_EQ(0, memcmp(cdw, zero_cdw, sizeof(cdw)));
+
+    reed_muller_decode(decoded, cdw);
+
+    EXPECT_EQ(0, memcmp(decoded, msg, PARAM_N1));
+}
+TEST(HQCTest, ReedMullerEncodeDecode) {
+    uint64_t msg[VEC_N1_SIZE_64] = {};
+    uint64_t cdw[VEC_N1N2_SIZE_64] = {};
+    uint64_t decoded[VEC_N1_SIZE_64] = {};
+
+    uint8_t *msg_bytes = reinterpret_cast<uint8_t *>(msg);
+
+    for (size_t i = 0; i < PARAM_N1; ++i) {
+        msg_bytes[i] = static_cast<uint8_t>(i * 37 + 0x5B);
+    }
+
+    reed_muller_encode(cdw, msg);
+    reed_muller_decode(decoded, cdw);
+
+    EXPECT_EQ(0, memcmp(decoded, msg, PARAM_N1));
+}
+TEST(HQCTest, ReedMullerRepeatedCodewords) {
+    uint64_t msg[VEC_N1_SIZE_64] = {};
+    uint64_t cdw[VEC_N1N2_SIZE_64] = {};
+
+    uint8_t *msg_bytes = reinterpret_cast<uint8_t *>(msg);
+
+    for (size_t i = 0; i < PARAM_N1; ++i) {
+        msg_bytes[i] = static_cast<uint8_t>(i * 19 + 7);
+    }
+
+    reed_muller_encode(cdw, msg);
+
+    const uint8_t *encoded = reinterpret_cast<const uint8_t *>(cdw);
+    const size_t multiplicity = PARAM_N2 / 128;
+    const size_t codeword_bytes = 16;
+
+    for (size_t i = 0; i < PARAM_N1; ++i) {
+        size_t base = i * multiplicity * codeword_bytes;
+
+        for (size_t copy = 1; copy < multiplicity; ++copy) {
+            EXPECT_EQ(0, memcmp(
+                encoded + base,
+                encoded + base + copy * codeword_bytes,
+                codeword_bytes
+            )) << "Message byte = " << i
+              << ", copy = " << copy;
+        }
+    }
+}
+
+TEST(HQCTest, ReedMullerKnownEncoding) {
+    uint64_t msg[VEC_N1_SIZE_64] = {};
+    uint64_t cdw[VEC_N1N2_SIZE_64] = {};
+
+    reinterpret_cast<uint8_t *>(msg)[0] = 0x01;
+
+    reed_muller_encode(cdw, msg);
+
+    uint8_t expected[VEC_N1N2_SIZE_BYTES] = {};
+
+    memset(expected, 0xAA, (PARAM_N2 / 128) * 16);
+
+    EXPECT_EQ(0, memcmp(cdw, expected, sizeof(expected)));
+}
+
+TEST(HQCTest, ReedMullerCorrectsBitErrors) {
+    uint64_t msg[VEC_N1_SIZE_64] = {};
+    uint64_t cdw[VEC_N1N2_SIZE_64] = {};
+    uint64_t decoded[VEC_N1_SIZE_64] = {};
+
+    uint8_t *msg_bytes = reinterpret_cast<uint8_t *>(msg);
+
+    for (size_t i = 0; i < PARAM_N1; ++i) {
+        msg_bytes[i] = static_cast<uint8_t>(i * 31 + 0x42);
+    }
+
+    reed_muller_encode(cdw, msg);
+
+    uint8_t *corrupted = reinterpret_cast<uint8_t *>(cdw);
+
+    const size_t multiplicity = PARAM_N2 / 128;
+
+    for (size_t i = 0; i < PARAM_N1; ++i) {
+        size_t base = i * multiplicity * 16;
+
+        for (size_t bit = 0; bit < 8; ++bit) {
+            corrupted[base + bit] ^= 1;
+        }
+    }
+
+    reed_muller_decode(decoded, cdw);
+
+    EXPECT_EQ(0, memcmp(decoded, msg, PARAM_N1));
+}
+TEST(HQCTest, ReedMullerExhaustiveAllBytes) {
+  // Test every possible byte value (0 to 255) through RM(1,7) encode/decode
+  for (uint16_t b = 0; b < 256; ++b) {
+    uint64_t msg[VEC_N1_SIZE_64] = {};
+    uint64_t cdw[VEC_N1N2_SIZE_64] = {};
+    uint64_t decoded[VEC_N1_SIZE_64] = {};
+
+    memset(msg, static_cast<uint8_t>(b), PARAM_N1);
+
+    reed_muller_encode(cdw, msg);
+    reed_muller_decode(decoded, cdw);
+
+    EXPECT_EQ(0, memcmp(decoded, msg, PARAM_N1)) << "Failed for byte 0x" << std::hex << b;
+  }
+}
+TEST(HQCTest, ReedMullerMaximumCorrectableErrors) {
+    uint64_t msg[VEC_N1_SIZE_64] = {};
+    uint64_t cdw[VEC_N1N2_SIZE_64] = {};
+    uint64_t decoded[VEC_N1_SIZE_64] = {};
+
+    uint8_t *msg_bytes = reinterpret_cast<uint8_t *>(msg);
+
+    for (size_t i = 0; i < PARAM_N1; ++i) {
+        msg_bytes[i] = static_cast<uint8_t>(
+            (i % 2 == 0) ? (i * 13) : (i * 13 | 0x80));
+    }
+
+    reed_muller_encode(cdw, msg);
+
+    uint8_t *corrupted = reinterpret_cast<uint8_t *>(cdw);
+
+    const size_t multiplicity = PARAM_N2 / 128;
+    const size_t codeword_bytes = multiplicity * 16;
+    const size_t min_distance = multiplicity * 64;
+    const size_t max_errors = (min_distance - 1) / 2;
+
+    for (size_t i = 0; i < PARAM_N1; ++i) {
+        size_t base = i * codeword_bytes;
+
+        for (size_t err = 0; err < max_errors; ++err) {
+            size_t bit_position = (err * 5 + 17) % PARAM_N2;
+
+            corrupted[base + bit_position / 8] ^=
+                static_cast<uint8_t>(1U << (bit_position % 8));
+        }
+    }
+
+    reed_muller_decode(decoded, cdw);
+
+    EXPECT_EQ(0, memcmp(decoded, msg, PARAM_N1));
+}
 }  // namespace bssl
